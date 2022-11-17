@@ -40,8 +40,8 @@ func NewClient(c redis.Cmdable) *Client {
 	}
 }
 
-// NewLock creates a new lock
-func NewLock(c redis.Cmdable, key, value string, expiration time.Duration) *Lock {
+// newLock creates a new lock
+func newLock(c redis.Cmdable, key, value string, expiration time.Duration) *Lock {
 	return &Lock{
 		client:     c,
 		key:        key,
@@ -63,7 +63,7 @@ func (c *Client) TryLock(ctx context.Context, key string, expiration time.Durati
 		return nil, ErrLockFailed
 	}
 
-	return NewLock(c.client, key, value, expiration), nil
+	return newLock(c.client, key, value, expiration), nil
 }
 
 // UnLock unlocks

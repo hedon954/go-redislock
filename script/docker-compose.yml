@@ -1,0 +1,7 @@
+services:
+  redis:
+    image: docker.io/bitnami/redis:6.0
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - '6380:6379'
