@@ -152,7 +152,7 @@ func (c *Client) Lock(ctx context.Context, key string, expiration, timeout time.
 		res, err := c.client.Eval(lockCtx, luaLock, []string{key}, value, expiration.Seconds()).Result()
 		cancel()
 
-		if err != nil && !!errors.Is(err, context.DeadlineExceeded) {
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			// no way to handle error
 			return nil, err
 		}
