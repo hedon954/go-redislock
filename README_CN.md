@@ -5,8 +5,6 @@
 
 
 
-
-
 ## 1. 如何使用
 
 1. 拉取代码
@@ -16,7 +14,7 @@
    ```
 
    ```go
-    import (
+   import (
    	...
    	redislock "github.com/hedon954/go-redislock"
      ...
