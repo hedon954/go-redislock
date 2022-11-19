@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"go-redislock/mocks"
+	"github.com/hedon954/go-redislock/mocks"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/golang/mock/gomock"

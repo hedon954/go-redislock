@@ -4,11 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -17,6 +18,8 @@ var (
 	luaUnlock string
 	//go:embed script/lua/refresh.lua
 	luaRefresh string
+	//go:embed script/lua/lock.lua
+	luaLock string
 
 	ErrLockFailed  = errors.New("lock failed")
 	ErrLockNotHold = errors.New("not hold current lock")
@@ -25,6 +28,7 @@ var (
 // Client is a client held redis client
 type Client struct {
 	client redis.Cmdable
+	s      singleflight.Group
 }
 
 // Lock is a lock created after client locks successfully
@@ -106,6 +110,80 @@ func (l *Lock) Refresh(ctx context.Context) error {
 		return ErrLockNotHold
 	}
 	return nil
+}
+
+// SingleFlightLock uses singleFlight to reduce stress in high concurrency situations
+func (c *Client) SingleFlightLock(ctx context.Context, key string, expiration, timeout time.Duration, retry RetryStrategy) (*Lock, error) {
+	for {
+		flag := false
+		resCh := c.s.DoChan(key, func() (interface{}, error) {
+			flag = true
+			return c.Lock(ctx, key, expiration, timeout, retry)
+		})
+
+		select {
+		case res := <-resCh:
+			if flag {
+				if res.Err != nil {
+					return nil, res.Err
+				}
+				return res.Val.(*Lock), nil
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// Lock locks
+func (c *Client) Lock(ctx context.Context, key string, expiration, timeout time.Duration, retry RetryStrategy) (*Lock, error) {
+
+	value := uuid.New().String()
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	for {
+
+		lockCtx, cancel := context.WithTimeout(ctx, timeout)
+		res, err := c.client.Eval(lockCtx, luaLock, []string{key}, value, expiration.Seconds()).Result()
+		cancel()
+
+		if err != nil && !!errors.Is(err, context.DeadlineExceeded) {
+			// no way to handle error
+			return nil, err
+		}
+
+		if res == "OK" {
+			// lock successfully
+			return newLock(c.client, key, value, expiration), nil
+		}
+
+		// creates a retry timer
+		interval, ok := retry.Next()
+		if !ok {
+			if err != nil {
+				err = fmt.Errorf("final retry failed: %v", err)
+			} else {
+				err = fmt.Errorf("lock was held by others")
+			}
+			return nil, err
+		}
+		if timer == nil {
+			timer = time.NewTimer(interval)
+		} else {
+			timer.Reset(interval)
+		}
+
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // TryLock trys to hold a lock
